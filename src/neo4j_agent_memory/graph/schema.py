@@ -114,7 +114,10 @@ class SchemaManager:
             ("entity_type_idx", "Entity", "type"),
             ("entity_name_idx", "Entity", "name"),
             ("entity_canonical_idx", "Entity", "canonical_name"),
+            ("entity_deduplication_scope_idx", "Entity", "deduplication_scope"),
             ("preference_category_idx", "Preference", "category"),
+            ("preference_deduplication_scope_idx", "Preference", "deduplication_scope"),
+            ("fact_deduplication_scope_idx", "Fact", "deduplication_scope"),
             # Reasoning memory
             ("trace_session_idx", "ReasoningTrace", "session_id"),
             ("trace_success_idx", "ReasoningTrace", "success"),

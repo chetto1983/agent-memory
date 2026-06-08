@@ -220,7 +220,7 @@ RETURN session_id, title, created_at, updated_at, message_count, first_message_p
 # query = build_create_entity_query("OBJECT", "VEHICLE")
 
 CREATE_ENTITY = """
-MERGE (e:Entity {name: $name, type: $type})
+MERGE (e:Entity {name: $name, type: $type, deduplication_scope: $deduplication_scope})
 ON CREATE SET
     e.id = $id,
     e.subtype = $subtype,
@@ -228,6 +228,7 @@ ON CREATE SET
     e.description = $description,
     e.embedding = $embedding,
     e.confidence = $confidence,
+    e.deduplication_scope = $deduplication_scope,
     e.created_at = datetime(),
     e.metadata = $metadata
 ON MATCH SET
@@ -295,6 +296,7 @@ CREATE (p:Preference {
     context: $context,
     confidence: $confidence,
     embedding: $embedding,
+    deduplication_scope: $deduplication_scope,
     created_at: datetime(),
     metadata: $metadata
 })
@@ -324,6 +326,7 @@ CREATE (f:Fact {
     object: $object,
     confidence: $confidence,
     embedding: $embedding,
+    deduplication_scope: $deduplication_scope,
     valid_from: $valid_from,
     valid_until: $valid_until,
     created_at: datetime(),
@@ -368,6 +371,7 @@ YIELD node, score
 WHERE score >= $threshold
   AND node.subject = $subject
   AND node.predicate = $predicate
+  AND ($deduplication_scope IS NULL OR node.deduplication_scope = $deduplication_scope)
 RETURN node AS f, score
 ORDER BY score DESC
 """
@@ -386,6 +390,7 @@ CALL db.index.vector.queryNodes('preference_embedding_idx', $limit, $embedding)
 YIELD node, score
 WHERE score >= $threshold
   AND node.category = $category
+  AND ($deduplication_scope IS NULL OR node.deduplication_scope = $deduplication_scope)
 RETURN node AS p, score
 ORDER BY score DESC
 """
@@ -953,7 +958,9 @@ RETURN count(r1) + count(r2) AS deleted
 FIND_SIMILAR_ENTITIES_BY_EMBEDDING = """
 CALL db.index.vector.queryNodes('entity_embedding_idx', $limit, $embedding)
 YIELD node, score
-WHERE score >= $threshold AND ($type IS NULL OR node.type = $type)
+WHERE score >= $threshold
+  AND ($type IS NULL OR node.type = $type)
+  AND ($deduplication_scope IS NULL OR node.deduplication_scope = $deduplication_scope)
 RETURN node AS e, score
 ORDER BY score DESC
 """

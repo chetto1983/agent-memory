@@ -299,6 +299,7 @@ class MockLongTermMemory:
         *,
         description: str | None = None,
         generate_embedding: bool = True,
+        metadata: dict[str, Any] | None = None,
     ) -> Entity:
         """Add an entity."""
         if isinstance(entity_type, str):
@@ -311,6 +312,7 @@ class MockLongTermMemory:
             description=description,
             canonical_name=name,
             created_at=datetime.utcnow(),
+            metadata=metadata or {},
         )
 
         self._entities[str(entity.id)] = entity
@@ -324,6 +326,7 @@ class MockLongTermMemory:
         context: str | None = None,
         confidence: float = 1.0,
         generate_embedding: bool = True,
+        metadata: dict[str, Any] | None = None,
     ) -> Preference:
         """Add a preference."""
         pref = Preference(
@@ -333,6 +336,7 @@ class MockLongTermMemory:
             context=context,
             confidence=confidence,
             created_at=datetime.utcnow(),
+            metadata=metadata or {},
         )
 
         self._preferences[str(pref.id)] = pref
@@ -346,6 +350,7 @@ class MockLongTermMemory:
         *,
         confidence: float = 1.0,
         generate_embedding: bool = True,
+        metadata: dict[str, Any] | None = None,
     ) -> Fact:
         """Add a fact."""
         fact = Fact(
@@ -355,6 +360,7 @@ class MockLongTermMemory:
             object=object_,
             confidence=confidence,
             created_at=datetime.utcnow(),
+            metadata=metadata or {},
         )
 
         self._facts[str(fact.id)] = fact

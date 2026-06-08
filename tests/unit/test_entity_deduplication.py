@@ -231,6 +231,38 @@ class TestLongTermMemoryDeduplication:
         assert dedup_result.action == "none"
 
     @pytest.mark.asyncio
+    async def test_search_entities_prefers_exact_name_match(self, memory, mock_client):
+        """Exact name matches should be returned before vector-only matches."""
+        exact_id = str(uuid4())
+        vector_id = str(uuid4())
+        exact_entity = {
+            "id": exact_id,
+            "name": "Aura Manual Spike",
+            "canonical_name": "Aura Manual Spike",
+            "type": "DOCUMENT",
+            "metadata": None,
+        }
+        vector_entity = {
+            "id": vector_id,
+            "name": "Older Aura Manual",
+            "canonical_name": "Older Aura Manual",
+            "type": "DOCUMENT",
+            "metadata": None,
+        }
+        mock_client.execute_read.side_effect = [
+            [{"e": exact_entity}],
+            [
+                {"e": vector_entity, "score": 0.99},
+                {"e": exact_entity, "score": 0.98},
+            ],
+        ]
+
+        results = await memory.search_entities("Aura Manual Spike", limit=3)
+
+        assert [entity.id for entity in results] == [UUID(exact_id), UUID(vector_id)]
+        assert results[0].metadata["similarity"] == 1.0
+
+    @pytest.mark.asyncio
     async def test_add_entity_auto_merge(self, memory, mock_client):
         """Test adding entity that triggers auto-merge."""
         existing_entity_id = str(uuid4())
@@ -402,6 +434,138 @@ class TestLongTermMemoryDeduplication:
         # Should match the active entity, not the merged one
         assert dedup_result.matched_entity_id == UUID(active_entity_id)
         assert dedup_result.action == "flagged"  # 0.87 is between thresholds
+
+    @pytest.mark.asyncio
+    async def test_add_entity_skips_cross_scope_duplicate_candidate(self, memory, mock_client):
+        """Scoped writes must not auto-merge into semantically similar other scopes."""
+        existing_entity_id = str(uuid4())
+        mock_client.execute_read.return_value = [
+            {
+                "e": {
+                    "id": existing_entity_id,
+                    "name": "Mario Rossi AURA-OLD",
+                    "canonical_name": "Mario Rossi AURA-OLD",
+                    "type": "PERSON",
+                    "metadata": '{"tag":"AURA-OLD"}',
+                },
+                "score": 0.99,
+            }
+        ]
+
+        entity, dedup_result = await memory.add_entity(
+            name="Mario Rossi AURA-NEW",
+            entity_type="PERSON",
+            metadata={"tag": "AURA-NEW"},
+        )
+
+        assert entity.name == "Mario Rossi AURA-NEW"
+        assert dedup_result.action == "none"
+        create_params = mock_client.execute_write.call_args_list[0].args[1]
+        assert "AURA-NEW" in create_params["deduplication_scope"]
+
+    @pytest.mark.asyncio
+    async def test_add_entity_allows_same_scope_duplicate_merge(self, memory, mock_client):
+        """Variants inside the same provenance scope can still auto-merge."""
+        existing_entity_id = str(uuid4())
+        call_count = 0
+
+        async def mock_execute_read(query, params):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return [
+                    {
+                        "e": {
+                            "id": existing_entity_id,
+                            "name": "Mario Rossi AURA-SAME",
+                            "canonical_name": "Mario Rossi AURA-SAME",
+                            "type": "PERSON",
+                            "metadata": '{"tag":"AURA-SAME"}',
+                        },
+                        "score": 0.99,
+                    }
+                ]
+            return [
+                {
+                    "e": {
+                        "id": existing_entity_id,
+                        "name": "Mario Rossi AURA-SAME",
+                        "canonical_name": "Mario Rossi AURA-SAME",
+                        "type": "PERSON",
+                        "metadata": '{"aliases":[],"tag":"AURA-SAME"}',
+                    }
+                }
+            ]
+
+        mock_client.execute_read = mock_execute_read
+
+        entity, dedup_result = await memory.add_entity(
+            name="M. Rossi AURA-SAME",
+            entity_type="PERSON",
+            metadata={"tag": "AURA-SAME"},
+        )
+
+        assert entity.name == "Mario Rossi AURA-SAME"
+        assert dedup_result.action == "merged"
+        assert dedup_result.matched_entity_id == UUID(existing_entity_id)
+
+    @pytest.mark.asyncio
+    async def test_add_preference_unscoped_semantic_hit_requires_exact_text(
+        self, memory, mock_client
+    ):
+        """Unscoped preference dedup is exact-first, not similarity-only."""
+        existing_pref_id = str(uuid4())
+        mock_client.execute_read.return_value = [
+            {
+                "p": {
+                    "id": existing_pref_id,
+                    "category": "spike_033",
+                    "preference": "Use compact verification notes for AURA-OLD",
+                    "context": "Stored by AURA-OLD",
+                    "confidence": 1.0,
+                    "metadata": None,
+                },
+                "score": 0.99,
+            }
+        ]
+
+        pref = await memory.add_preference(
+            "spike_033",
+            "Use compact verification notes for AURA-NEW",
+            context="Stored by AURA-NEW",
+        )
+
+        assert str(pref.id) != existing_pref_id
+        assert pref.metadata.get("deduplicated") is None
+        assert mock_client.execute_write.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_add_preference_allows_same_scope_semantic_hit(self, memory, mock_client):
+        """Scoped preferences can reuse a semantic hit inside the same scope."""
+        existing_pref_id = str(uuid4())
+        mock_client.execute_read.return_value = [
+            {
+                "p": {
+                    "id": existing_pref_id,
+                    "category": "spike_033",
+                    "preference": "Use compact verification notes",
+                    "context": "Stored by AURA-SAME",
+                    "confidence": 1.0,
+                    "metadata": '{"tag":"AURA-SAME"}',
+                },
+                "score": 0.99,
+            }
+        ]
+
+        pref = await memory.add_preference(
+            "spike_033",
+            "Use compact verification notes please",
+            context="Stored by AURA-SAME",
+            metadata={"tag": "AURA-SAME"},
+        )
+
+        assert str(pref.id) == existing_pref_id
+        assert pref.metadata["deduplicated"] is True
 
     @pytest.mark.asyncio
     async def test_find_potential_duplicates(self, memory, mock_client):

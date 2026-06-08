@@ -29,7 +29,7 @@ PLATINUM_TOOL_NAMES = {
 class TestConditionalRegistration:
     @pytest.mark.asyncio
     async def test_not_registered_by_default(self):
-        """Extended profile without register_platinum=True has 16 tools, no Platinum."""
+        """Extended profile without register_platinum=True has 17 tools, no Platinum."""
         mock_client = make_mock_client()
         server = create_tool_server(mock_client, profile="extended")
         async with Client(server) as client:

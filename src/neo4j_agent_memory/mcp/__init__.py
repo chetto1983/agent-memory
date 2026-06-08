@@ -8,7 +8,7 @@ Built on FastMCP for decorator-based tool/resource/prompt registration.
 
 Supports two tool profiles:
 - Core (6 tools): Essential read/write cycle
-- Extended (16 tools): Full surface with reasoning, entities, graph export
+- Extended (17 tools): Full surface with reasoning, entities, facts, graph export
 """
 
 from neo4j_agent_memory.mcp.server import Neo4jMemoryMCPServer, create_mcp_server

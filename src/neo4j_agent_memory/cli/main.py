@@ -732,7 +732,7 @@ def mcp():
     "--profile",
     type=click.Choice(["core", "extended"]),
     default="extended",
-    help="Tool profile: core (6 tools) or extended (16 tools).",
+    help="Tool profile: core (6 tools) or extended (17 tools).",
 )
 @click.option(
     "--session-strategy",

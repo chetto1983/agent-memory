@@ -317,7 +317,7 @@ class TestBuildCreateEntityQuery:
         """Test that generated query contains MERGE clause."""
         query = build_create_entity_query("PERSON", None)
         assert "MERGE (e:Entity" in query
-        assert "{name: $name, type: $type}" in query
+        assert "{name: $name, type: $type, deduplication_scope: $deduplication_scope}" in query
 
     def test_query_contains_on_create_set(self):
         """Test that generated query contains ON CREATE SET."""

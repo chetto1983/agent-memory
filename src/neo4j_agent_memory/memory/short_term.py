@@ -1083,6 +1083,7 @@ class ShortTermMemory(BaseMemory[Message]):
                             "embedding": None,
                             "confidence": entity.confidence,
                             "metadata": None,
+                            "deduplication_scope": "global",
                             "location": None,  # Required for LOCATION entities
                         },
                     )
@@ -1266,6 +1267,7 @@ class ShortTermMemory(BaseMemory[Message]):
                     "embedding": None,
                     "confidence": entity.confidence,
                     "metadata": metadata_payload,
+                    "deduplication_scope": "global",
                     "location": None,  # Required for LOCATION entities
                 },
             )

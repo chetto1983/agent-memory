@@ -239,8 +239,8 @@ def build_create_entity_query(
 ) -> str:
     """Build the CREATE_ENTITY query with dynamic type/subtype labels.
 
-    The query MERGEs on :Entity with name+type properties for uniqueness,
-    then adds type and subtype as additional labels.
+    The query MERGEs on :Entity with name+type+deduplication_scope properties
+    for uniqueness, then adds type and subtype as additional labels.
 
     Args:
         entity_type: The entity type (e.g., "PERSON", "OBJECT")
@@ -267,7 +267,7 @@ def build_create_entity_query(
         location_on_create = ",\n    e.location = CASE WHEN $location IS NOT NULL THEN point({latitude: $location.latitude, longitude: $location.longitude}) ELSE null END"
         location_on_match = ",\n    e.location = CASE WHEN $location IS NOT NULL THEN point({latitude: $location.latitude, longitude: $location.longitude}) ELSE e.location END"
 
-    query = f"""MERGE (e:Entity {{name: $name, type: $type}})
+    query = f"""MERGE (e:Entity {{name: $name, type: $type, deduplication_scope: $deduplication_scope}})
 ON CREATE SET
     e.id = $id,
     e.subtype = $subtype,
@@ -275,6 +275,7 @@ ON CREATE SET
     e.description = $description,
     e.embedding = $embedding,
     e.confidence = $confidence,
+    e.deduplication_scope = $deduplication_scope,
     e.created_at = datetime(),
     e.metadata = $metadata{location_on_create}
 ON MATCH SET

@@ -22,11 +22,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md README-pypi.md ./
 COPY src/ ./src/
 
-# Install the package with MCP and Google dependencies
-RUN pip install --no-cache-dir -e ".[mcp,google]"
+# Install the package with MCP, Google, and OpenAI-compatible provider dependencies
+RUN pip install --no-cache-dir -e ".[mcp,google,openai]"
 
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app

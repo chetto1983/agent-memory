@@ -168,6 +168,7 @@ class TestEntityQueries:
                 "embedding": None,
                 "confidence": 0.9,
                 "metadata": None,
+                "deduplication_scope": "global",
                 "location": None,
             },
         )
@@ -196,6 +197,7 @@ class TestEntityQueries:
                 "embedding": None,
                 "confidence": 0.95,
                 "metadata": None,
+                "deduplication_scope": "global",
                 "location": None,
             },
         )
@@ -245,6 +247,7 @@ class TestEntityQueries:
                 "embedding": None,
                 "confidence": 0.8,
                 "metadata": None,
+                "deduplication_scope": "global",
                 "location": None,
             },
         )
@@ -287,6 +290,7 @@ class TestEntityRelationQueries:
                 "embedding": None,
                 "confidence": 0.9,
                 "metadata": None,
+                "deduplication_scope": "global",
                 "location": None,
             },
         )
@@ -302,6 +306,7 @@ class TestEntityRelationQueries:
                 "embedding": None,
                 "confidence": 0.9,
                 "metadata": None,
+                "deduplication_scope": "global",
                 "location": None,
             },
         )
@@ -338,6 +343,7 @@ class TestEntityRelationQueries:
                 "embedding": None,
                 "confidence": 0.9,
                 "metadata": None,
+                "deduplication_scope": "global",
                 "location": None,
             },
         )
@@ -354,6 +360,7 @@ class TestEntityRelationQueries:
                 "embedding": None,
                 "confidence": 0.9,
                 "metadata": None,
+                "deduplication_scope": "global",
                 "location": None,
             },
         )
@@ -722,6 +729,7 @@ class TestEntityExtractionQueries:
                 "embedding": None,
                 "confidence": 0.9,
                 "metadata": None,
+                "deduplication_scope": "global",
                 "location": None,
             },
         )

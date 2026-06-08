@@ -55,8 +55,8 @@ class TestCreateMCPServer:
         async def _check():
             async with Client(server) as client:
                 tools = await client.list_tools()
-                # Extended profile (default) registers 16 tools
-                assert len(tools) == 16
+                # Extended profile (default) registers 17 tools
+                assert len(tools) == 17
 
         asyncio.run(_check())
 

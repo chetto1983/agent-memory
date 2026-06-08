@@ -151,7 +151,7 @@ class TestMCPToolDefinitions:
     """Test that MCP tool definitions are complete and valid via FastMCP."""
 
     def test_extended_profile_tool_count(self):
-        """Verify extended profile registers 16 MCP tools."""
+        """Verify extended profile registers 17 MCP tools."""
         import asyncio
 
         from fastmcp import Client, FastMCP
@@ -164,7 +164,7 @@ class TestMCPToolDefinitions:
         async def _check():
             async with Client(mcp) as client:
                 tools = await client.list_tools()
-                assert len(tools) == 16
+                assert len(tools) == 17
 
         asyncio.run(_check())
 
@@ -193,6 +193,7 @@ class TestMCPToolDefinitions:
                     "memory_get_conversation",
                     "memory_list_sessions",
                     "memory_get_entity",
+                    "memory_get_facts",
                     "memory_export_graph",
                     "memory_create_relationship",
                     "memory_start_trace",

@@ -99,6 +99,12 @@ class TestRelationStorage:
         # - 1 RELATED_TO relationship
         assert len(calls) >= 5
 
+        entity_create_params = [
+            call.args[1] for call in calls if call.args and "MERGE (e:Entity" in call.args[0]
+        ]
+        assert len(entity_create_params) == 2
+        assert all(params["deduplication_scope"] == "global" for params in entity_create_params)
+
         # Find the relation creation call
         relation_calls = [
             call

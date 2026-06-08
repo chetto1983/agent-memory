@@ -2,7 +2,7 @@
 
 Tools are organized into two profiles:
 - Core (6 tools): Essential read/write cycle for memory operations.
-- Extended (16 tools): Full surface including reasoning traces, entity
+- Extended (17 tools): Full surface including reasoning traces, entity
   management, graph export, and advanced queries.
 
 Each tool follows goal-oriented design: high-level tools that orchestrate
@@ -30,21 +30,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# ── Tool annotations ──────────────────────────────────────────────────
-
-READ_ANNOTATIONS = {
-    "readOnlyHint": True,
-    "destructiveHint": False,
-    "idempotentHint": True,
-}
-
-WRITE_ANNOTATIONS = {
-    "readOnlyHint": False,
-    "destructiveHint": False,
-    "idempotentHint": False,
-}
-
-
 # ── Registration dispatcher ──────────────────────────────────────────
 
 
@@ -58,7 +43,7 @@ def register_tools(
 
     Args:
         mcp: FastMCP server instance.
-        profile: Tool profile - 'core' (6 tools) or 'extended' (16 tools).
+        profile: Tool profile - 'core' (6 tools) or 'extended' (17 tools).
         register_platinum: When True (and profile == 'extended'), register
             four additional NAMS Platinum-tier tools:
             ``memory_set_entity_feedback``, ``memory_get_entity_history``,
@@ -79,7 +64,7 @@ def register_tools(
 def _register_core_tools(mcp: FastMCP) -> None:
     """Register the 6 core profile tools."""
 
-    @mcp.tool(annotations=READ_ANNOTATIONS)
+    @mcp.tool()
     async def memory_search(
         ctx: Context,
         query: str,
@@ -111,7 +96,7 @@ def _register_core_tools(mcp: FastMCP) -> None:
         )
         return json.dumps(result, default=str)
 
-    @mcp.tool(annotations=READ_ANNOTATIONS)
+    @mcp.tool()
     async def memory_get_context(
         ctx: Context,
         session_id: str | None = None,
@@ -146,7 +131,7 @@ def _register_core_tools(mcp: FastMCP) -> None:
         )
         return json.dumps(result, default=str)
 
-    @mcp.tool(annotations=WRITE_ANNOTATIONS)
+    @mcp.tool()
     async def memory_store_message(
         ctx: Context,
         content: str,
@@ -175,7 +160,7 @@ def _register_core_tools(mcp: FastMCP) -> None:
         )
         return json.dumps(result, default=str)
 
-    @mcp.tool(annotations=WRITE_ANNOTATIONS)
+    @mcp.tool()
     async def memory_add_entity(
         ctx: Context,
         name: str,
@@ -212,13 +197,14 @@ def _register_core_tools(mcp: FastMCP) -> None:
         )
         return json.dumps(result, default=str)
 
-    @mcp.tool(annotations=WRITE_ANNOTATIONS)
+    @mcp.tool()
     async def memory_add_preference(
         ctx: Context,
         category: str,
         preference: str,
         context: str | None = None,
         confidence: float = 1.0,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """Record a user preference for personalization.
 
@@ -230,6 +216,7 @@ def _register_core_tools(mcp: FastMCP) -> None:
             preference: The preference text (e.g., 'Prefers dark mode').
             context: Optional context about when/why the preference was expressed.
             confidence: Confidence score 0.0-1.0 (default: 1.0).
+            metadata: Additional provenance metadata.
         """
         integration = get_integration(ctx)
         result = await integration.add_preference(
@@ -237,10 +224,11 @@ def _register_core_tools(mcp: FastMCP) -> None:
             preference=preference,
             context=context,
             confidence=confidence,
+            metadata=metadata,
         )
         return json.dumps(result, default=str)
 
-    @mcp.tool(annotations=WRITE_ANNOTATIONS)
+    @mcp.tool()
     async def memory_add_fact(
         ctx: Context,
         subject: str,
@@ -278,13 +266,13 @@ def _register_core_tools(mcp: FastMCP) -> None:
         return json.dumps(result, default=str)
 
 
-# ── Extended Profile (9 additional tools, 15 total) ──────────────────
+# ── Extended Profile ─────────────────────────────────────────────────
 
 
 def _register_extended_tools(mcp: FastMCP) -> None:
-    """Register the 9 extended profile tools."""
+    """Register the 11 extended profile tools."""
 
-    @mcp.tool(annotations=READ_ANNOTATIONS)
+    @mcp.tool()
     async def memory_get_conversation(
         ctx: Context,
         session_id: str,
@@ -333,7 +321,7 @@ def _register_extended_tools(mcp: FastMCP) -> None:
             logger.error(f"Error in memory_get_conversation: {e}")
             return json.dumps({"error": str(e)})
 
-    @mcp.tool(annotations=READ_ANNOTATIONS)
+    @mcp.tool()
     async def memory_list_sessions(
         ctx: Context,
         limit: int = 20,
@@ -387,7 +375,7 @@ def _register_extended_tools(mcp: FastMCP) -> None:
             logger.error(f"Error in memory_list_sessions: {e}")
             return json.dumps({"error": str(e)})
 
-    @mcp.tool(annotations=READ_ANNOTATIONS)
+    @mcp.tool()
     async def memory_get_entity(
         ctx: Context,
         name: str,
@@ -443,7 +431,60 @@ def _register_extended_tools(mcp: FastMCP) -> None:
             logger.error(f"Error in memory_get_entity: {e}")
             return json.dumps({"error": str(e)})
 
-    @mcp.tool(annotations=READ_ANNOTATIONS)
+    @mcp.tool()
+    async def memory_get_facts(
+        ctx: Context,
+        subject: str | None = None,
+        query: str | None = None,
+        limit: int = 20,
+        threshold: float = 0.7,
+    ) -> str:
+        """Retrieve facts by exact subject or semantic query.
+
+        Use this instead of broad graph_query when an agent needs declarative
+        subject-predicate-object facts.
+
+        Args:
+            subject: Exact fact subject to retrieve.
+            query: Optional semantic query when subject is not known.
+            limit: Maximum facts to return.
+            threshold: Similarity threshold for semantic search.
+        """
+        client = get_client(ctx)
+        try:
+            if subject:
+                facts = await client.long_term.get_facts_about(subject, limit=limit)
+            elif query:
+                facts = await client.long_term.search_facts(
+                    query,
+                    limit=limit,
+                    threshold=threshold,
+                )
+            else:
+                return json.dumps({"error": "Provide subject or query."})
+
+            return json.dumps(
+                {
+                    "fact_count": len(facts),
+                    "facts": [
+                        {
+                            "id": str(f.id),
+                            "subject": f.subject,
+                            "predicate": f.predicate,
+                            "object": f.object,
+                            "confidence": f.confidence,
+                            "metadata": f.metadata,
+                        }
+                        for f in facts
+                    ],
+                },
+                default=str,
+            )
+        except Exception as e:
+            logger.error(f"Error in memory_get_facts: {e}")
+            return json.dumps({"error": str(e)})
+
+    @mcp.tool()
     async def memory_export_graph(
         ctx: Context,
         session_id: str | None = None,
@@ -486,7 +527,7 @@ def _register_extended_tools(mcp: FastMCP) -> None:
             logger.error(f"Error in memory_export_graph: {e}")
             return json.dumps({"error": str(e)})
 
-    @mcp.tool(annotations=WRITE_ANNOTATIONS)
+    @mcp.tool()
     async def memory_create_relationship(
         ctx: Context,
         source_name: str,
@@ -552,7 +593,7 @@ def _register_extended_tools(mcp: FastMCP) -> None:
             logger.error(f"Error in memory_create_relationship: {e}")
             return json.dumps({"error": str(e)})
 
-    @mcp.tool(annotations=WRITE_ANNOTATIONS)
+    @mcp.tool()
     async def memory_start_trace(
         ctx: Context,
         session_id: str,
@@ -592,7 +633,7 @@ def _register_extended_tools(mcp: FastMCP) -> None:
             logger.error(f"Error in memory_start_trace: {e}")
             return json.dumps({"error": str(e)})
 
-    @mcp.tool(annotations=WRITE_ANNOTATIONS)
+    @mcp.tool()
     async def memory_record_step(
         ctx: Context,
         trace_id: str,
@@ -652,7 +693,7 @@ def _register_extended_tools(mcp: FastMCP) -> None:
             logger.error(f"Error in memory_record_step: {e}")
             return json.dumps({"error": str(e)})
 
-    @mcp.tool(annotations=WRITE_ANNOTATIONS)
+    @mcp.tool()
     async def memory_complete_trace(
         ctx: Context,
         trace_id: str,
@@ -691,7 +732,7 @@ def _register_extended_tools(mcp: FastMCP) -> None:
             logger.error(f"Error in memory_complete_trace: {e}")
             return json.dumps({"error": str(e)})
 
-    @mcp.tool(annotations=READ_ANNOTATIONS)
+    @mcp.tool()
     async def memory_get_observations(
         ctx: Context,
         session_id: str,
@@ -739,7 +780,7 @@ def _register_extended_tools(mcp: FastMCP) -> None:
             logger.error(f"Error in memory_get_observations: {e}")
             return json.dumps({"error": str(e)})
 
-    @mcp.tool(annotations=READ_ANNOTATIONS)
+    @mcp.tool()
     async def graph_query(
         ctx: Context,
         query: str,
@@ -797,7 +838,7 @@ def _register_platinum_tools(mcp: FastMCP) -> None:
     backend does not implement.
     """
 
-    @mcp.tool(annotations=WRITE_ANNOTATIONS)
+    @mcp.tool()
     async def memory_set_entity_feedback(
         ctx: Context,
         entity_id: str,
@@ -828,7 +869,7 @@ def _register_platinum_tools(mcp: FastMCP) -> None:
             logger.error(f"Error in memory_set_entity_feedback: {e}")
             return json.dumps({"error": str(e)})
 
-    @mcp.tool(annotations=READ_ANNOTATIONS)
+    @mcp.tool()
     async def memory_get_entity_history(
         ctx: Context,
         entity_id: str,
@@ -855,7 +896,7 @@ def _register_platinum_tools(mcp: FastMCP) -> None:
             logger.error(f"Error in memory_get_entity_history: {e}")
             return json.dumps({"error": str(e)})
 
-    @mcp.tool(annotations=READ_ANNOTATIONS)
+    @mcp.tool()
     async def memory_get_entity_provenance(
         ctx: Context,
         entity_id: str,
@@ -876,7 +917,7 @@ def _register_platinum_tools(mcp: FastMCP) -> None:
             logger.error(f"Error in memory_get_entity_provenance: {e}")
             return json.dumps({"error": str(e)})
 
-    @mcp.tool(annotations=READ_ANNOTATIONS)
+    @mcp.tool()
     async def memory_get_reflections(
         ctx: Context,
         session_id: str,

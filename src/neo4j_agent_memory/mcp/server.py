@@ -5,7 +5,7 @@ memory capabilities as tools, resources, and prompts for AI platforms.
 
 Supports two tool profiles:
 - Core (6 tools): Essential read/write cycle
-- Extended (16 tools): Full surface with reasoning, entities, graph export
+- Extended (17 tools): Full surface with reasoning, entities, facts, graph export
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ try:
             settings: MemorySettings for Neo4j connection. If None, the server
                 is created without a lifespan (useful for testing).
             server_name: Server name for MCP registration.
-            profile: Tool profile - 'core' (6 tools) or 'extended' (16 tools).
+            profile: Tool profile - 'core' (6 tools) or 'extended' (17 tools).
             session_strategy: Session ID strategy - 'per_conversation',
                 'per_day', or 'persistent'.
             user_id: User identifier for per_day and persistent strategies.
@@ -405,7 +405,7 @@ def main() -> None:
         "--profile",
         choices=["core", "extended"],
         default="extended",
-        help="Tool profile: core (6 tools) or extended (16 tools, default)",
+        help="Tool profile: core (6 tools) or extended (17 tools, default)",
     )
     parser.add_argument(
         "--session-strategy",

@@ -33,6 +33,7 @@ EXTENDED_TOOL_NAMES = CORE_TOOL_NAMES | {
     "memory_get_conversation",
     "memory_list_sessions",
     "memory_get_entity",
+    "memory_get_facts",
     "memory_export_graph",
     "memory_create_relationship",
     "memory_start_trace",
@@ -68,12 +69,12 @@ class TestToolRegistration:
             assert names == CORE_TOOL_NAMES
 
     @pytest.mark.asyncio
-    async def test_extended_profile_registers_16_tools(self, mock_client):
-        """Extended profile should register 16 tools (6 core + 10 extended)."""
+    async def test_extended_profile_registers_17_tools(self, mock_client):
+        """Extended profile should register 17 tools (6 core + 11 extended)."""
         server = create_tool_server(mock_client, profile="extended")
         async with Client(server) as client:
             tools = await client.list_tools()
-            assert len(tools) == 16
+            assert len(tools) == 17
 
     @pytest.mark.asyncio
     async def test_extended_profile_tool_names(self, mock_client):
@@ -99,7 +100,7 @@ class TestToolRegistration:
         server = create_tool_server(mock_client)
         async with Client(server) as client:
             tools = await client.list_tools()
-            assert len(tools) == 16
+            assert len(tools) == 17
 
 
 class TestCoreToolParameters:
@@ -224,10 +225,18 @@ class TestCoreToolExecution:
         async with Client(server) as client:
             result = await client.call_tool(
                 "memory_add_preference",
-                {"category": "food", "preference": "Likes pasta"},
+                {
+                    "category": "food",
+                    "preference": "Likes pasta",
+                    "metadata": {"session_id": "s1"},
+                },
             )
             data = json.loads(result.content[0].text)
             assert data["stored"] is True
+            mock_integration.add_preference.assert_awaited_once()
+            assert mock_integration.add_preference.await_args.kwargs["metadata"] == {
+                "session_id": "s1"
+            }
 
     @pytest.mark.asyncio
     async def test_memory_add_fact_calls_integration(self, server, mock_integration):
@@ -316,6 +325,24 @@ class TestExtendedToolExecution:
             result = await client.call_tool("memory_get_entity", {"name": "Unknown"})
             data = json.loads(result.content[0].text)
             assert data["found"] is False
+
+    @pytest.mark.asyncio
+    async def test_memory_get_facts_by_subject(self, server, mock_client):
+        mock_fact = MagicMock()
+        mock_fact.id = "f-1"
+        mock_fact.subject = "A"
+        mock_fact.predicate = "likes"
+        mock_fact.object = "B"
+        mock_fact.confidence = 1.0
+        mock_fact.metadata = {"source_id": "s1"}
+        mock_client.long_term.get_facts_about = AsyncMock(return_value=[mock_fact])
+
+        async with Client(server) as client:
+            result = await client.call_tool("memory_get_facts", {"subject": "A"})
+            data = json.loads(result.content[0].text)
+            assert data["fact_count"] == 1
+            assert data["facts"][0]["subject"] == "A"
+            assert data["facts"][0]["predicate"] == "likes"
 
     @pytest.mark.asyncio
     async def test_memory_start_trace(self, server, mock_client):

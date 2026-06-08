@@ -36,10 +36,10 @@ class TestFastMCPToolRegistration:
             assert len(tools) == 6
 
     @pytest.mark.asyncio
-    async def test_extended_profile_registers_16_tools(self, extended_server):
+    async def test_extended_profile_registers_17_tools(self, extended_server):
         async with Client(extended_server) as client:
             tools = await client.list_tools()
-            assert len(tools) == 16
+            assert len(tools) == 17
 
     @pytest.mark.asyncio
     async def test_core_tool_names(self, core_server):

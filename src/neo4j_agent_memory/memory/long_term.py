@@ -139,6 +139,76 @@ def _deserialize_metadata(metadata_str: str | None) -> dict[str, Any]:
         return {}
 
 
+_PROVENANCE_SCOPE_KEYS = (
+    "tenant_id",
+    "workspace_id",
+    "user_identifier",
+    "user_id",
+    "actor_id",
+    "session_id",
+    "source_id",
+    "source_url",
+    "document_id",
+    "run_id",
+    "memory_scope",
+    "scope",
+    "tag",
+)
+
+
+def _scope_value(value: Any) -> str | None:
+    """Return a stable string for metadata values that can scope dedup."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized or None
+    if isinstance(value, (bool, int, float)):
+        return str(value)
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"))
+    except TypeError:
+        return str(value)
+
+
+def _deduplication_scope(metadata: dict[str, Any] | None) -> str | None:
+    """Build a stable provenance scope from metadata.
+
+    When callers provide tenant/source/session/run metadata, automatic
+    semantic deduplication must stay inside that boundary. Unscoped writes
+    keep the package's historical global behavior.
+    """
+    if not isinstance(metadata, dict):
+        return None
+    scoped: dict[str, str] = {}
+    for key in _PROVENANCE_SCOPE_KEYS:
+        if key not in metadata:
+            continue
+        value = _scope_value(metadata.get(key))
+        if value is not None:
+            scoped[key] = value
+    if not scoped:
+        return None
+    return json.dumps(scoped, sort_keys=True, separators=(",", ":"))
+
+
+def _node_metadata(data: dict[str, Any]) -> dict[str, Any]:
+    return _deserialize_metadata(data.get("metadata"))
+
+
+def _node_matches_scope(data: dict[str, Any], deduplication_scope: str | None) -> bool:
+    """Return True when a candidate is inside the incoming dedup scope."""
+    if deduplication_scope is None:
+        return True
+    if data.get("deduplication_scope") == deduplication_scope:
+        return True
+    return _deduplication_scope(_node_metadata(data)) == deduplication_scope
+
+
+def _normalized_text(value: str | None) -> str:
+    return " ".join((value or "").casefold().split())
+
+
 def _to_python_datetime(neo4j_datetime) -> datetime:
     """Convert Neo4j DateTime to Python datetime."""
     if neo4j_datetime is None:
@@ -451,6 +521,8 @@ class LongTermMemory(BaseMemory[Entity]):
         if generate_embedding and self._embedder is not None:
             embedding = await self._embedder.embed(name)
 
+        deduplication_scope = _deduplication_scope(metadata)
+
         # Check for duplicates using embedding similarity
         dedup_result = DeduplicationResult()
         if deduplicate and self._deduplication.enabled and embedding is not None:
@@ -458,6 +530,7 @@ class LongTermMemory(BaseMemory[Entity]):
                 name=name,
                 entity_type=parsed_type,
                 embedding=embedding,
+                deduplication_scope=deduplication_scope,
             )
 
             # If auto-merged, return the existing entity
@@ -503,6 +576,8 @@ class LongTermMemory(BaseMemory[Entity]):
 
         # Merge attributes into metadata for storage
         storage_metadata = {**entity.metadata}
+        if deduplication_scope is not None:
+            storage_metadata["deduplication_scope"] = deduplication_scope
         if entity.attributes:
             storage_metadata["attributes"] = entity.attributes
         if entity.aliases:
@@ -522,6 +597,7 @@ class LongTermMemory(BaseMemory[Entity]):
                 "embedding": entity.embedding,
                 "confidence": entity.confidence,
                 "metadata": _serialize_metadata(storage_metadata) if storage_metadata else None,
+                "deduplication_scope": deduplication_scope or "global",
                 "location": location_point,  # Neo4j Point for LOCATION entities
             },
         )
@@ -592,6 +668,8 @@ class LongTermMemory(BaseMemory[Entity]):
         """
         self._enforce_multi_tenant(user_identifier)
 
+        deduplication_scope = _deduplication_scope(metadata)
+
         # Generate embedding
         embedding = None
         if generate_embedding and self._embedder is not None:
@@ -610,10 +688,18 @@ class LongTermMemory(BaseMemory[Entity]):
                         "limit": 3,
                         "threshold": 0.95,
                         "category": category,
+                        "deduplication_scope": deduplication_scope,
                     },
                 )
-                if dupes:
-                    existing_data = dict(dupes[0]["p"])
+                for row in dupes:
+                    existing_data = dict(row["p"])
+                    if not self._can_dedupe_preference(
+                        existing_data,
+                        preference=preference,
+                        context=context,
+                        deduplication_scope=deduplication_scope,
+                    ):
+                        continue
                     existing = self._parse_preference(existing_data)
                     existing.metadata["deduplicated"] = True
                     # Even on a dedupe hit we still want to attach the user
@@ -650,6 +736,7 @@ class LongTermMemory(BaseMemory[Entity]):
                 "confidence": pref.confidence,
                 "embedding": pref.embedding,
                 "metadata": _serialize_metadata(pref.metadata),
+                "deduplication_scope": deduplication_scope or "global",
             },
         )
 
@@ -845,6 +932,8 @@ class LongTermMemory(BaseMemory[Entity]):
         Returns:
             The created or existing fact
         """
+        deduplication_scope = _deduplication_scope(metadata)
+
         # Generate embedding
         embedding = None
         if generate_embedding and self._embedder is not None:
@@ -862,10 +951,13 @@ class LongTermMemory(BaseMemory[Entity]):
                         "threshold": 0.95,
                         "subject": subject,
                         "predicate": predicate,
+                        "deduplication_scope": deduplication_scope,
                     },
                 )
-                if dupes:
-                    existing_data = dict(dupes[0]["f"])
+                for row in dupes:
+                    existing_data = dict(row["f"])
+                    if not _node_matches_scope(existing_data, deduplication_scope):
+                        continue
                     await self._client.execute_write(
                         queries.UPDATE_FACT_CONFIDENCE,
                         {
@@ -906,6 +998,7 @@ class LongTermMemory(BaseMemory[Entity]):
                 "valid_from": fact.valid_from.isoformat() if fact.valid_from else None,
                 "valid_until": fact.valid_until.isoformat() if fact.valid_until else None,
                 "metadata": _serialize_metadata(fact.metadata),
+                "deduplication_scope": deduplication_scope or "global",
             },
         )
 
@@ -1017,8 +1110,33 @@ class LongTermMemory(BaseMemory[Entity]):
         Returns:
             List of matching entities
         """
+        # Normalize filter types
+        filter_types: set[str] | None = None
+        if entity_types:
+            filter_types = {normalize_entity_type(t) for t in entity_types}
+
+        entities: list[Entity] = []
+        seen_ids: set[UUID] = set()
+
+        exact_match = await self.get_entity_by_name(query)
+        exact_names = set()
+        if exact_match:
+            exact_names = {
+                _normalized_text(value)
+                for value in [exact_match.name, exact_match.canonical_name, *exact_match.aliases]
+                if value
+            }
+        if (
+            exact_match
+            and _normalized_text(query) in exact_names
+            and (filter_types is None or exact_match.type in filter_types)
+        ):
+            exact_match.metadata["similarity"] = 1.0
+            entities.append(exact_match)
+            seen_ids.add(exact_match.id)
+
         if self._embedder is None:
-            return []
+            return entities[:limit]
 
         query_embedding = await self._embedder.embed(query)
 
@@ -1031,12 +1149,6 @@ class LongTermMemory(BaseMemory[Entity]):
             },
         )
 
-        # Normalize filter types
-        filter_types: set[str] | None = None
-        if entity_types:
-            filter_types = {normalize_entity_type(t) for t in entity_types}
-
-        entities = []
         for row in results:
             entity_data = dict(row["e"])
             entity_type = entity_data["type"]
@@ -1046,8 +1158,13 @@ class LongTermMemory(BaseMemory[Entity]):
                 continue
 
             entity = self._parse_entity(entity_data)
+            if entity.id in seen_ids:
+                continue
             entity.metadata["similarity"] = row["score"]
             entities.append(entity)
+            seen_ids.add(entity.id)
+            if len(entities) >= limit:
+                break
 
         return entities
 
@@ -1251,6 +1368,7 @@ class LongTermMemory(BaseMemory[Entity]):
         name: str,
         entity_type: str,
         embedding: list[float],
+        deduplication_scope: str | None = None,
     ) -> DeduplicationResult:
         """Check if an entity is a potential duplicate of existing entities.
 
@@ -1272,6 +1390,7 @@ class LongTermMemory(BaseMemory[Entity]):
                 "limit": config.max_candidates,
                 "threshold": config.flag_threshold,
                 "type": entity_type if config.match_same_type_only else None,
+                "deduplication_scope": deduplication_scope,
             },
         )
 
@@ -1289,6 +1408,11 @@ class LongTermMemory(BaseMemory[Entity]):
 
             # Skip if this is a merged entity
             if entity_data.get("merged_into"):
+                continue
+            # A provenance-scoped write can only deduplicate with candidates
+            # inside the exact same scope. Similar entities outside the scope
+            # are intentionally left as separate records.
+            if not _node_matches_scope(entity_data, deduplication_scope):
                 continue
 
             # Check fuzzy matching if enabled
@@ -1344,6 +1468,25 @@ class LongTermMemory(BaseMemory[Entity]):
             )
 
         return DeduplicationResult()
+
+    def _can_dedupe_preference(
+        self,
+        existing_data: dict[str, Any],
+        *,
+        preference: str,
+        context: str | None,
+        deduplication_scope: str | None,
+    ) -> bool:
+        """Return True when a preference duplicate hit is safe to reuse."""
+        if deduplication_scope is not None:
+            return _node_matches_scope(existing_data, deduplication_scope)
+
+        # Unscoped preferences keep dedup conservative: exact same statement
+        # and context can reuse a record, but high semantic similarity alone
+        # must not collapse distinct user/source assertions.
+        return _normalized_text(existing_data.get("preference")) == _normalized_text(
+            preference
+        ) and _normalized_text(existing_data.get("context")) == _normalized_text(context)
 
     async def _get_entity_by_id(self, entity_id: UUID) -> Entity | None:
         """Get an entity by its ID.
